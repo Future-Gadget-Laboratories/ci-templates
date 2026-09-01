@@ -7,10 +7,6 @@ on:
         required: false
         type: string
         default: engine
-      python_version:
-        required: false
-        type: string
-        default: "3.12"
       extras:
         description: Optional extras to install alongside the base package, e.g. "[plot]"
         required: false
@@ -25,8 +21,9 @@ jobs:
 
       - name: Set up a clean venv
         run: |
-          python${{ inputs.python_version }} -m venv .ci-venv
+          python3 -m venv .ci-venv
           echo "$(pwd)/.ci-venv/bin" >> "$GITHUB_PATH"
+          .ci-venv/bin/python3 --version
 
       - name: Install the package
         run: |
