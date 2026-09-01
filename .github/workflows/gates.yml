@@ -9,6 +9,10 @@ on:
         required: false
         type: string
         default: "."
+      sonar_exclusions:
+        required: false
+        type: string
+        default: ""
       ci_templates_ref:
         required: false
         type: string
@@ -50,8 +54,15 @@ jobs:
 
       - name: SonarQube scan
         if: ${{ env.SONAR_TOKEN != '' }}
+        env:
+          SONAR_EXCLUSIONS: ${{ inputs.sonar_exclusions }}
         run: |
-          sonar-scanner \
-            -Dsonar.projectKey=${{ inputs.sonar_project_key }} \
-            -Dsonar.sources=${{ inputs.sonar_sources }} \
-            -Dsonar.host.url=$SONAR_HOST_URL
+          args=(
+            "-Dsonar.projectKey=${{ inputs.sonar_project_key }}"
+            "-Dsonar.sources=${{ inputs.sonar_sources }}"
+            "-Dsonar.host.url=$SONAR_HOST_URL"
+          )
+          if [[ -n "$SONAR_EXCLUSIONS" ]]; then
+            args+=("-Dsonar.exclusions=$SONAR_EXCLUSIONS")
+          fi
+          sonar-scanner "${args[@]}"
