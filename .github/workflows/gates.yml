@@ -1,0 +1,57 @@
+name: Standard gates
+on:
+  workflow_call:
+    inputs:
+      sonar_project_key:
+        required: true
+        type: string
+      sonar_sources:
+        required: false
+        type: string
+        default: "."
+      ci_templates_ref:
+        required: false
+        type: string
+        default: main
+    secrets:
+      SONAR_TOKEN:
+        required: false
+
+jobs:
+  gates:
+    runs-on: [self-hosted, self-hosted-ci]
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: http://10.0.0.21:9000
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout ci-templates
+        uses: actions/checkout@v4
+        with:
+          repository: Future-Gadget-Laboratories/ci-templates
+          ref: ${{ inputs.ci_templates_ref }}
+          path: .ci-templates
+
+      - name: Secret scan (baseline)
+        run: bash .ci-templates/scripts/scan-secrets-baseline.sh .
+
+      - name: Shellcheck
+        run: |
+          if find . -name '*.sh' -not -path './.venv*' -not -path './.ci-templates/*' -print -quit | grep -q .; then
+            find . -name '*.sh' -not -path './.venv*' -not -path './.ci-templates/*' -print0 \
+              | xargs -0 shellcheck -S warning
+          else
+            echo "no .sh files, skipping"
+          fi
+
+      - name: SonarQube scan
+        if: ${{ env.SONAR_TOKEN != '' }}
+        run: |
+          sonar-scanner \
+            -Dsonar.projectKey=${{ inputs.sonar_project_key }} \
+            -Dsonar.sources=${{ inputs.sonar_sources }} \
+            -Dsonar.host.url=$SONAR_HOST_URL

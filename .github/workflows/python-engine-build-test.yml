@@ -1,0 +1,52 @@
+name: Python engine build+test
+on:
+  workflow_call:
+    inputs:
+      engine_dir:
+        description: Path to the package to build/test (a real pyproject.toml lives here)
+        required: false
+        type: string
+        default: engine
+      python_version:
+        required: false
+        type: string
+        default: "3.12"
+      extras:
+        description: Optional extras to install alongside the base package, e.g. "[plot]"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  build-test:
+    runs-on: [self-hosted, self-hosted-ci]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up a clean venv
+        run: |
+          python${{ inputs.python_version }} -m venv .ci-venv
+          echo "$(pwd)/.ci-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install the package
+        run: |
+          pip install --disable-pip-version-check -q build pytest
+          pip install --disable-pip-version-check -q "./${{ inputs.engine_dir }}${{ inputs.extras }}"
+
+      - name: Run tests (if any exist)
+        run: |
+          if [ -d "${{ inputs.engine_dir }}/tests" ]; then
+            pytest "${{ inputs.engine_dir }}/tests" -q
+          else
+            echo "no ${{ inputs.engine_dir }}/tests directory - nothing to run yet"
+          fi
+
+      - name: Build sdist + wheel
+        run: python -m build --outdir dist "${{ inputs.engine_dir }}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ inputs.engine_dir }}
+          path: dist/
+          retention-days: 30
