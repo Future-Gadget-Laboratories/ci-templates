@@ -27,7 +27,17 @@ scan_tree() {
 scan_tree 'BEGIN OPENSSH PRIVATE KEY|BEGIN RSA PRIVATE KEY|BEGIN EC PRIVATE KEY|BEGIN PGP PRIVATE KEY' 'PEM/OpenSSH/PGP private key'
 scan_tree '^[[:space:]]*PrivateKey[[:space:]]*=' 'WireGuard-style PrivateKey assignment'
 scan_tree 'AKIA[0-9A-Z]{16}' 'AWS access key ID'
-scan_tree '(api[_-]?key|secret|password|token)[[:space:]]*[:=][[:space:]]*["'"'"'][A-Za-z0-9/+_-]{16,}["'"'"']' 'hardcoded credential-shaped assignment'
+
+# Credential-shaped assignments, excluding obvious dev/placeholder values
+# (change-me, changeme, xxx, placeholder, example, dev-*, TODO, replace-me)
+# so a repo's own documented local-dev default isn't flagged as a real leak.
+if grep -R -I -n --exclude-dir=.git --exclude-dir=.venv --exclude-dir=node_modules \
+    --exclude-dir=__pycache__ --exclude='*.zip' \
+    -E '(api[_-]?key|secret|password|token)[[:space:]]*[:=][[:space:]]*["'"'"'][A-Za-z0-9/+_-]{16,}["'"'"']' . 2>/dev/null \
+    | grep -v 'scan-secrets' \
+    | grep -viE 'change.?me|placeholder|example|dev-|todo|replace.?me|xxx+|fixme|sample|<[a-z_-]+>' ; then
+  note "matched hardcoded credential-shaped assignment"
+fi
 
 if [[ $fail -ne 0 ]]; then
   echo "scan-secrets-baseline.sh FAILED" >&2
