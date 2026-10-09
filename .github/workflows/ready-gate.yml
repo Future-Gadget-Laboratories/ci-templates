@@ -1,0 +1,78 @@
+name: ready-gate
+
+# Only a repository admin may take a pull request out of draft.
+#
+# Call this from a workflow triggered by `pull_request_target`
+# (types: opened, reopened, ready_for_review, synchronize), so the gate always
+# comes from the base branch and a pull request cannot edit it away.
+#
+# - Draft PR: allowed=false, nothing else happens.
+# - Ready PR and the event's sender is an admin (marked it ready, or pushed to it): allowed=true.
+# - Ready PR and the sender is not an admin (marked it ready, opened it ready, reopened it,
+#   or pushed new commits): the PR goes back to draft with a comment, allowed=false.
+#
+# Jobs that run PR code on self-hosted runners must `needs:` this job, run only when
+# allowed == 'true', and check out `head_sha` (the commit the admin saw), never the branch name.
+
+on:
+  workflow_call:
+    outputs:
+      allowed:
+        description: "'true' when a repository admin has made this pull request ready"
+        value: ${{ jobs.gate.outputs.allowed }}
+      head_sha:
+        description: The pull request head commit this decision is about
+        value: ${{ jobs.gate.outputs.head_sha }}
+
+jobs:
+  gate:
+    name: Admin marked ready
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      allowed: ${{ steps.decide.outputs.allowed }}
+      head_sha: ${{ steps.decide.outputs.head_sha }}
+    steps:
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          SENDER: ${{ github.event.sender.login }}
+          PR: ${{ github.event.pull_request.number }}
+          PR_NODE_ID: ${{ github.event.pull_request.node_id }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" != "pull_request_target" ]]; then
+            echo "ready-gate must be called from pull_request_target (got $EVENT)" >&2
+            exit 1
+          fi
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          if [[ "$DRAFT" == "true" ]]; then
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "PR #${PR} is a draft; nothing runs."
+            exit 0
+          fi
+          perm=$(gh api "repos/${REPO}/collaborators/${SENDER}/permission" --jq .permission 2>/dev/null || echo none)
+          echo "event=${ACTION} sender=${SENDER} permission=${perm}"
+          if [[ "$perm" == "admin" ]]; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "allowed=false" >> "$GITHUB_OUTPUT"
+          # shellcheck disable=SC2016  # $id is a GraphQL variable, not shell
+          if ! gh api graphql \
+              -f query='mutation($id: ID!) { convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { isDraft } } }' \
+              -f id="$PR_NODE_ID" >/dev/null; then
+            echo "::warning::could not convert PR #${PR} back to draft; the build still does not run"
+          fi
+          gh pr comment "$PR" --repo "$REPO" --body \
+            "Back to draft: only a repository admin can mark a pull request ready (\`${ACTION}\` by @${SENDER}). After review, an admin marks it ready again, and that starts the self-hosted build." \
+            || echo "::warning::could not comment on PR #${PR}"
