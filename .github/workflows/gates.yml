@@ -26,11 +26,7 @@ jobs:
     runs-on: [self-hosted, self-hosted-ci]
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      # localhost, not a LAN IP: this job only ever runs on the self-hosted
-      # runner living on the same box as SonarQube (labcluster0-test), so
-      # loopback is correct today and immune to any future re-subnetting
-      # (the LAN moved from 10.0.0.0/24 to 192.168.1.0/24 on 2026-09-11,
-      # which is what made the previous hardcoded 10.0.0.21 stale).
+      # Local SonarQube on the private self-hosted runner.
       SONAR_HOST_URL: http://127.0.0.1:9000
     steps:
       - name: Checkout calling repo
