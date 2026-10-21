@@ -15,18 +15,12 @@ concurrency:
 jobs:
   without-python-version:
     name: python-version omitted
-    permissions:
-      contents: read
-      actions: write # upload-artifact in the called build-test workflow
     uses: ./.github/workflows/python-engine-build-test.yml
     with:
       engine_dir: python-self-test
 
   with-python-3-13:
     name: python-version 3.13
-    permissions:
-      contents: read
-      actions: write # upload-artifact in the called build-test workflow
     uses: ./.github/workflows/python-engine-build-test.yml
     with:
       engine_dir: python-self-test

@@ -56,12 +56,9 @@ jobs:
     with:
       engine_dir: engine
       python-version: "3.13"
-    permissions:
-      contents: read
-      actions: write
 ```
 
-`actions: write` is what `actions/upload-artifact` needs once `permissions:` is set. Callers that do not set `permissions:` are unchanged.
+The workflow grants `contents: read` only. Same-run artifact upload does not use `actions: write`, so a caller that grants only `contents: read` still works. Job timeout and concurrency are unchanged from v1.0.0: no `timeout-minutes` (the 360-minute default) and no concurrency group.
 
 When `python-version` is empty the artifact name is `dist-<engine_dir>`. When it is set, the name is `dist-<engine_dir>-py<python-version>`.
 
