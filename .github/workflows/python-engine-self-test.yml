@@ -1,0 +1,27 @@
+name: Python engine self-test
+
+# Push only. A pull_request trigger would execute this checkout on the called
+# workflow for untrusted fork code. Same-repo pushes run both call styles.
+on:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-engine-self-test-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  without-python-version:
+    name: python-version omitted
+    uses: ./.github/workflows/python-engine-build-test.yml
+    with:
+      engine_dir: python-self-test
+
+  with-python-3-13:
+    name: python-version 3.13
+    uses: ./.github/workflows/python-engine-build-test.yml
+    with:
+      engine_dir: python-self-test
+      python-version: "3.13"
