@@ -12,38 +12,103 @@ on:
         required: false
         type: string
         default: ""
+      python-version:
+        description: >-
+          CPython version for actions/setup-python, such as 3.13, 3.13.1, or 3.x.
+          Empty (the default) skips setup-python and uses python3 already on PATH.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-engine-build-test-${{ github.repository }}-${{ github.ref }}-${{ github.job }}-${{ inputs.engine_dir }}-${{ inputs.python-version }}
+  cancel-in-progress: true
 
 jobs:
   build-test:
     runs-on: [self-hosted, self-hosted-ci]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write # actions/upload-artifact; contents: read is the checkout
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Empty python-version is the v1.0.0 path. Do not call setup-python in that case:
+      # an unset version makes setup-python read .python-version, which these callers do not do today.
+      - name: Check python-version
+        shell: bash
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$PYTHON_VERSION" ]]; then
+            exit 0
+          fi
+          if [[ ! "$PYTHON_VERSION" =~ ^[0-9]+(\.(x|[0-9]+)){0,2}$ ]]; then
+            echo "python-version must be a CPython version such as 3.13, 3.13.1, or 3.x" >&2
+            exit 1
+          fi
+
+      - name: Set up Python
+        if: inputs.python-version != ''
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python-version }}
 
       - name: Set up a clean venv
+        shell: bash
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
         run: |
+          set -euo pipefail
+          if [[ -n "$PYTHON_VERSION" ]]; then
+            echo "Using actions/setup-python with python-version=${PYTHON_VERSION}"
+          else
+            echo "python-version unset; using python3 on PATH"
+          fi
           python3 -m venv .ci-venv
           echo "$(pwd)/.ci-venv/bin" >> "$GITHUB_PATH"
           .ci-venv/bin/python3 --version
 
       - name: Install the package
+        shell: bash
+        env:
+          ENGINE_DIR: ${{ inputs.engine_dir }}
+          EXTRAS: ${{ inputs.extras }}
         run: |
+          set -euo pipefail
           pip install --disable-pip-version-check -q build pytest
-          pip install --disable-pip-version-check -q "./${{ inputs.engine_dir }}${{ inputs.extras }}"
+          pip install --disable-pip-version-check -q "./${ENGINE_DIR}${EXTRAS}"
 
       - name: Run tests (if any exist)
+        shell: bash
+        env:
+          ENGINE_DIR: ${{ inputs.engine_dir }}
         run: |
-          if [ -d "${{ inputs.engine_dir }}/tests" ]; then
-            pytest "${{ inputs.engine_dir }}/tests" -q
+          set -euo pipefail
+          if [ -d "${ENGINE_DIR}/tests" ]; then
+            pytest "${ENGINE_DIR}/tests" -q
           else
-            echo "no ${{ inputs.engine_dir }}/tests directory - nothing to run yet"
+            echo "no ${ENGINE_DIR}/tests directory - nothing to run yet"
           fi
 
       - name: Build sdist + wheel
-        run: python -m build --outdir dist "${{ inputs.engine_dir }}"
+        shell: bash
+        env:
+          ENGINE_DIR: ${{ inputs.engine_dir }}
+        run: |
+          set -euo pipefail
+          python -m build --outdir dist "${ENGINE_DIR}"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: dist-${{ inputs.engine_dir }}
+          name: ${{ inputs.python-version == '' && format('dist-{0}', inputs.engine_dir) || format('dist-{0}-py{1}', inputs.engine_dir, inputs.python-version) }}
           path: dist/
           retention-days: 30

@@ -7,25 +7,77 @@ on:
         required: false
         type: string
         default: engine
+      python-version:
+        description: >-
+          CPython version for actions/setup-python, such as 3.13, 3.13.1, or 3.x.
+          Empty (the default) skips setup-python and uses python3 already on PATH.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-python-engine-${{ github.repository }}-${{ github.ref }}-${{ inputs.engine_dir }}-${{ inputs.python-version }}
+  cancel-in-progress: false
 
 jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: [self-hosted, self-hosted-ci]
+    timeout-minutes: 20
     permissions:
-      contents: write
+      contents: write # create the GitHub Release and upload its assets
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Empty python-version is the v1.0.0 path. Do not call setup-python in that case:
+      # an unset version makes setup-python read .python-version, which these callers do not do today.
+      - name: Check python-version
+        shell: bash
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$PYTHON_VERSION" ]]; then
+            exit 0
+          fi
+          if [[ ! "$PYTHON_VERSION" =~ ^[0-9]+(\.(x|[0-9]+)){0,2}$ ]]; then
+            echo "python-version must be a CPython version such as 3.13, 3.13.1, or 3.x" >&2
+            exit 1
+          fi
+
+      - name: Set up Python
+        if: inputs.python-version != ''
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ inputs.python-version }}
 
       - name: Set up a clean venv
+        shell: bash
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
         run: |
+          set -euo pipefail
+          if [[ -n "$PYTHON_VERSION" ]]; then
+            echo "Using actions/setup-python with python-version=${PYTHON_VERSION}"
+          else
+            echo "python-version unset; using python3 on PATH"
+          fi
           python3 -m venv .ci-venv
           echo "$(pwd)/.ci-venv/bin" >> "$GITHUB_PATH"
 
       - name: Build sdist + wheel
+        shell: bash
+        env:
+          ENGINE_DIR: ${{ inputs.engine_dir }}
         run: |
+          set -euo pipefail
           pip install --disable-pip-version-check -q build
-          python -m build --outdir dist "${{ inputs.engine_dir }}"
+          python -m build --outdir dist "${ENGINE_DIR}"
 
       - name: Attach artifacts to GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
