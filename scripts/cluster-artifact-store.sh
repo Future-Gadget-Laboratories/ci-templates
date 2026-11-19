@@ -17,7 +17,7 @@ while (($#)); do
 done
 
 [[ -n "$src" && -d "$src" ]] || { printf '::error::Artifact source directory is missing\n' >&2; exit 1; }
-[[ -n "$name" && "$name" =~ ^[A-Za-z0-9_.-]+$ && "$name" != *..* ]] || { printf '::error::Invalid artifact name\n' >&2; exit 1; }
+[[ -n "$name" && "$name" != . && "$name" != .. && "$name" =~ ^[A-Za-z0-9_.-]+$ && "$name" != *..* ]] || { printf '::error::Invalid artifact name\n' >&2; exit 1; }
 root=${CLUSTER_ARTIFACT_ROOT:-}
 [[ -n "$root" ]] || { printf '::error::CLUSTER_ARTIFACT_ROOT is not configured\n' >&2; exit 1; }
 [[ -d "$root" && -w "$root" ]] || { printf '::error::CLUSTER_ARTIFACT_ROOT is missing or not writable\n' >&2; exit 1; }

@@ -53,6 +53,17 @@ already exist and be writable; the workflow fails closed if it is missing or
 unusable. The optional `ci_templates_ref` input defaults to `main`, and
 `artifact_name` defaults to `dist-<engine_dir>`.
 
+Consumers must pair the reusable workflow's `uses:` ref with the same
+`ci_templates_ref` value so the workflow and its checked-out helper scripts
+come from one revision. While the workflow is referenced at `@main`, pass
+`ci_templates_ref: main`; once merged, pin both to the same `ci-templates`
+commit SHA.
+
+The cluster workflow uses `cancel-in-progress: false` and a concurrency group
+per ref. This protects `main` runs and permits only one pending PR run per
+group; rapid PR pushes can wait up to 60 minutes for an older run, and calls
+from one caller workflow serialize.
+
 Retention follows D46: keep all artifacts on hold until backed up to a backup
 storage location. Purge only when every listed cluster disk is above 80% used,
 after a 72-hour warning period. Cluster operations run

@@ -87,7 +87,9 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "$CLUSTER_ARTIFACT_ROOT_CONFIG" ]]; then
-            printf 'CLUSTER_ARTIFACT_ROOT=%s\n' "$CLUSTER_ARTIFACT_ROOT_CONFIG" >> "$GITHUB_ENV"
+            [[ "$CLUSTER_ARTIFACT_ROOT_CONFIG" != *$'\n'* && "$CLUSTER_ARTIFACT_ROOT_CONFIG" != *$'\r'* ]] || { printf '::error::Invalid CLUSTER_ARTIFACT_ROOT\n' >&2; exit 1; }
+            delim="EOF_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+            printf 'CLUSTER_ARTIFACT_ROOT<<%s\n%s\n%s\n' "$delim" "$CLUSTER_ARTIFACT_ROOT_CONFIG" "$delim" >> "$GITHUB_ENV"
           fi
 
       - name: Store build artifacts on cluster storage
@@ -96,5 +98,5 @@ jobs:
           ARTIFACT_NAME: ${{ inputs.artifact_name }}
         run: |
           set -euo pipefail
-          artifact_name=${ARTIFACT_NAME:-dist-${ENGINE_DIR}}
+          artifact_name=${ARTIFACT_NAME:-dist-${ENGINE_DIR//\//-}}
           bash .ci-templates/scripts/cluster-artifact-store.sh --src dist --name "$artifact_name"

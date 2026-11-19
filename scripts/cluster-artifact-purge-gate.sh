@@ -38,7 +38,7 @@ disks=()
 if [[ -n "$disks_file" ]]; then
   [[ -f "$disks_file" ]] || { printf 'Disk list file is missing\n' >&2; exit 1; }
   while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ -z "$line" || "$line" == \\#* ]] || disks+=("$line")
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] || disks+=("$line")
   done < "$disks_file"
 else
   read -r -a disks <<< "$disks_text"
@@ -48,6 +48,9 @@ mkdir -p -- "$state_dir"
 state_key=$(printf '%s' "$(realpath -e -- "$root")" | sha256sum | cut -d' ' -f1)
 warning_file="$state_dir/$state_key.warning"
 log_file="$state_dir/$state_key.purges.log"
+lock_file="$state_dir/$state_key.lock"
+exec 9>"$lock_file"
+flock -n 9 || { printf 'Another purge-gate run holds the state lock: %s\n' "$lock_file" >&2; exit 1; }
 df_command=${PURGE_GATE_DF:-df}
 
 usage_snapshot() {
@@ -114,10 +117,12 @@ PY
 done < <(find "$root" -type f -name manifest.json -print0)
 
 if [[ ! -f "$warning_file" ]]; then
-  { date -u +%s; date -u +'%Y-%m-%dT%H:%M:%SZ'; printf '%s\n' "$snapshot"; } > "$warning_file"
   printf '%s\n' "$warning_text"
   printf '::warning::%s\n' "$warning_text"
   if [[ -n "$notify_cmd" ]]; then printf '%s\n' "$warning_text" | bash -c "$notify_cmd"; fi
+  warning_tmp=$(mktemp "$state_dir/.${state_key}.warning.XXXXXXXX")
+  { date -u +%s; date -u +'%Y-%m-%dT%H:%M:%SZ'; printf '%s\n' "$snapshot"; } > "$warning_tmp"
+  mv -f -- "$warning_tmp" "$warning_file"
   if [[ -s "$candidates_file" ]]; then
     while IFS=$'\t' read -r created artifact_dir; do
       [[ -n "$created" && -n "$artifact_dir" ]] || continue
@@ -150,6 +155,7 @@ while IFS=$'\t' read -r created artifact_dir; do
   snapshot=$(usage_snapshot)
   if ! all_above "$snapshot"; then
     printf 'Storage returned to threshold; stopping purge.\n'
+    rm -f -- "$warning_file"
     exit 0
   fi
 done < <(LC_ALL=C sort -t $'\t' -k1,1 "$candidates_file")
