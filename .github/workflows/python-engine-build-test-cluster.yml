@@ -1,0 +1,102 @@
+name: Python engine build+test (cluster artifacts)
+on:
+  workflow_call:
+    inputs:
+      engine_dir:
+        description: Path to the package to build/test (a real pyproject.toml lives here)
+        required: false
+        type: string
+        default: engine
+      extras:
+        description: Optional extras to install alongside the base package, e.g. "[plot]"
+        required: false
+        type: string
+        default: ""
+      ci_templates_ref:
+        description: ci-templates ref used for shared scripts
+        required: false
+        type: string
+        default: main
+      artifact_name:
+        description: Name for the cluster artifact directory (empty uses dist-<engine_dir>)
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-test:
+    runs-on: [self-hosted, self-hosted-ci]
+    timeout-minutes: 60
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout ci-templates
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Future-Gadget-Laboratories/ci-templates
+          ref: ${{ inputs.ci_templates_ref }}
+          path: .ci-templates
+          persist-credentials: false
+
+      - name: Set up a clean venv
+        run: |
+          python3 -m venv .ci-venv
+          echo "$(pwd)/.ci-venv/bin" >> "$GITHUB_PATH"
+          .ci-venv/bin/python3 --version
+
+      - name: Install the package
+        env:
+          ENGINE_DIR: ${{ inputs.engine_dir }}
+          EXTRAS: ${{ inputs.extras }}
+        run: |
+          set -euo pipefail
+          pip install --disable-pip-version-check -q build pytest
+          pip install --disable-pip-version-check -q "./${ENGINE_DIR}${EXTRAS}"
+
+      - name: Run tests (if any exist)
+        env:
+          ENGINE_DIR: ${{ inputs.engine_dir }}
+        run: |
+          set -euo pipefail
+          if [[ -d "${ENGINE_DIR}/tests" ]]; then
+            pytest "${ENGINE_DIR}/tests" -q
+          else
+            printf 'no %s/tests directory - nothing to run yet\n' "$ENGINE_DIR"
+          fi
+
+      - name: Build sdist + wheel
+        env:
+          ENGINE_DIR: ${{ inputs.engine_dir }}
+        run: |
+          set -euo pipefail
+          python -m build --outdir dist "$ENGINE_DIR"
+
+      - name: Configure cluster artifact root
+        env:
+          CLUSTER_ARTIFACT_ROOT_CONFIG: ${{ vars.CLUSTER_ARTIFACT_ROOT }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$CLUSTER_ARTIFACT_ROOT_CONFIG" ]]; then
+            [[ "$CLUSTER_ARTIFACT_ROOT_CONFIG" != *$'\n'* && "$CLUSTER_ARTIFACT_ROOT_CONFIG" != *$'\r'* ]] || { printf '::error::Invalid CLUSTER_ARTIFACT_ROOT\n' >&2; exit 1; }
+            delim="EOF_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+            printf 'CLUSTER_ARTIFACT_ROOT<<%s\n%s\n%s\n' "$delim" "$CLUSTER_ARTIFACT_ROOT_CONFIG" "$delim" >> "$GITHUB_ENV"
+          fi
+
+      - name: Store build artifacts on cluster storage
+        env:
+          ENGINE_DIR: ${{ inputs.engine_dir }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          artifact_name=${ARTIFACT_NAME:-dist-${ENGINE_DIR//\//-}}
+          bash .ci-templates/scripts/cluster-artifact-store.sh --src dist --name "$artifact_name"
